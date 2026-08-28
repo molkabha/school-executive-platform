@@ -1,0 +1,46 @@
+name: Database Backup
+
+on:
+  schedule:
+    # Run every day at 02:00 UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL 17 Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl ca-certificates
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          sudo sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-17
+          echo "Verifying pg_dump version:"
+          which pg_dump || echo "pg_dump not in PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version
+
+      - name: Run Backup Script
+        id: backup
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          # Explicitly use the PostgreSQL 17 binary without relying on PATH resolution
+          sed -i 's/pg_dump /\/usr\/lib\/postgresql\/17\/bin\/pg_dump /g' backend/scripts/backup-db.sh
+          sed -i 's/pg_isready /\/usr\/lib\/postgresql\/17\/bin\/pg_isready /g' backend/scripts/backup-db.sh
+          chmod +x backend/scripts/backup-db.sh
+          ./backend/scripts/backup-db.sh
+          echo "date=$(date -u +"%Y-%m-%d")" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Backup Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-backup-${{ steps.backup.outputs.date }}
+          path: school-executive-*.dump
+          retention-days: 90

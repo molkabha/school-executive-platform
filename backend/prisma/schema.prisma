@@ -1,0 +1,379 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// -----------------------------------------------------------------------
+// DATABASE PROVIDER
+// For local development: provider = "postgresql" with a local PostgreSQL DATABASE_URL
+// For production (Neon / Supabase / PostgreSQL):
+//   1. Set provider = "postgresql"
+//   2. Set DATABASE_URL to your PostgreSQL connection string
+//   3. Run: npx prisma migrate deploy
+// -----------------------------------------------------------------------
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id          String        @id @default(cuid())
+  name        String
+  email       String        @unique
+  password    String
+  role        String        // GENERAL_SUPERVISOR
+  schoolId    String?
+  school      School?       @relation(fields: [schoolId], references: [id])
+  permissions String        @default("[]") // JSON array string for supervisor access metadata
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  audits      AuditLog[]
+  sources     DataSource[]
+  reports     Report[]      @relation("ReportCreator")
+  documents   Document[]    @relation("DocumentOwner")
+  reportExports ReportExport[]
+  importBatchesTriggered ImportBatch[] @relation("ImportBatchTriggered")
+  importBatchesRolledBack ImportBatch[] @relation("ImportBatchRollback")
+
+  @@index([role])
+  @@index([schoolId])
+  @@index([createdAt])
+}
+
+model School {
+  id               String             @id @default(cuid())
+  name             String
+  code             String             @unique
+  // Phase 1 activation flag: lets the supervisor exclude a school from
+  // dashboards/reports/AI context without deleting its historical records
+  // (deleting would also cascade-fail on related users/sources/reports).
+  // Defaults to true so every existing and newly created school participates
+  // unless explicitly deactivated.
+  isActive         Boolean            @default(true)
+  users            User[]
+  sources          DataSource[]
+  reports          Report[]
+  documents        Document[]
+  staffEntries     StaffModuleEntry[]
+  kpiSnapshots     KpiSnapshot[]
+  importBatches    ImportBatch[]
+  alerts           Alert[]            // back-relation for Alert.school
+  complaints       Complaint[]        // back-relation for Complaint.school
+  tasks            Task[]             // back-relation for Task.school
+
+  @@index([name])
+  @@index([isActive])
+}
+
+model DataSource {
+  id               String    @id @default(cuid())
+  name             String
+  type             String    // GOOGLE_DRIVE | EXCEL_UPLOAD | GMAIL
+  provider         String
+  status           String    @default("NOT_CONNECTED") // CONNECTED | NOT_CONNECTED | ERROR
+  module           String
+  lastSync         DateTime?
+  ownerId          String
+  owner            User      @relation(fields: [ownerId], references: [id])
+  schoolId         String?
+  school           School?   @relation(fields: [schoolId], references: [id])
+  externalFileId   String?
+  externalUrl      String?
+  metadata         String?   // JSON string
+  connectionConfig String?   // JSON string
+  analysisHistory  String?   // JSON string array
+  importBatches    ImportBatch[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([ownerId])
+  @@index([schoolId])
+  @@index([module])
+  @@index([status])
+  @@index([updatedAt])
+}
+
+model Document {
+  id              String    @id @default(cuid())
+  name            String
+  sourceType      String    // GOOGLE_DRIVE | EXCEL_UPLOAD | GMAIL
+  externalUrl     String?
+  module          String
+  lastUpdated     DateTime  @default(now())
+  metadata        String?   // JSON string: { size, format, description }
+  analysisHistory String?   // JSON string array of AI analysis results
+  ownerId         String
+  owner           User      @relation("DocumentOwner", fields: [ownerId], references: [id])
+  schoolId        String?
+  school          School?   @relation(fields: [schoolId], references: [id])
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([ownerId])
+  @@index([schoolId])
+  @@index([module])
+  @@index([updatedAt])
+}
+
+model StaffModuleEntry {
+  id             String   @id @default(cuid())
+  moduleName     String   // attendance | housing | teacher_voice | etc.
+  schoolId       String
+  school         School   @relation(fields: [schoolId], references: [id])
+  title          String
+  status         String   // ACTIVE | NEEDS_ATTENTION | CRITICAL | GOOD
+  metrics        String?  // JSON string: { key: value }
+  
+  // Structured data for critical modules (Attendance, Housing)
+  attendanceRate    Float?
+  absenceCount      Int?
+  housingIssueCount Int?
+  housingCategory   String?
+  housingSeverity   String?
+  resolutionSla     String?
+
+  linkedDocument String?  // Document ID reference
+  sourceRefs     String?  // JSON string array of DataSource IDs
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([schoolId])
+  @@index([moduleName])
+  @@index([status])
+  @@index([updatedAt])
+  @@unique([schoolId, moduleName, title])
+}
+
+model KpiSnapshot {
+  id          String   @id @default(cuid())
+  metricName  String   // total_staff | attendance_rate | open_issues | turnover_rate | etc.
+  value       String   // JSON-serialized value (number or object)
+  schoolId    String?
+  school      School?  @relation(fields: [schoolId], references: [id])
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([schoolId])
+  @@index([metricName])
+  @@index([date])
+  @@index([schoolId, metricName, date])
+  @@unique([schoolId, metricName, date])
+}
+
+model Report {
+  id          String         @id @default(cuid())
+  title       String
+  scope       String         // ALL_SCHOOLS | SCHOOL_SPECIFIC
+  period      String         // WEEKLY | MONTHLY | SEMESTER
+  modules     String         // comma-separated module IDs
+  aiOutput    String         // JSON string of structured AI output
+  createdById String
+  createdBy   User           @relation("ReportCreator", fields: [createdById], references: [id])
+  schoolId    String?
+  school      School?        @relation(fields: [schoolId], references: [id])
+  exports     ReportExport[]
+  createdAt   DateTime       @default(now())
+
+  @@index([createdById])
+  @@index([schoolId])
+  @@index([createdAt])
+  @@index([period, scope])
+}
+
+model ReportExport {
+  id         String   @id @default(cuid())
+  reportId   String
+  report     Report   @relation(fields: [reportId], references: [id])
+  exportedAt DateTime @default(now())
+  format     String   // pdf | docx
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@index([reportId])
+  @@index([userId])
+  @@index([exportedAt])
+}
+
+model Alert {
+  id         String   @id @default(cuid())
+  type       String   // ATTENDANCE | HOUSING | TURNOVER | TEACHER_VOICE | SYSTEM | DOCUMENT
+  source     String   // module or system name
+  status     String   @default("OPEN") // OPEN | IN_PROGRESS | RESOLVED
+  priority   String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  title      String
+  details    String?
+  schoolId   String?
+  school     School?  @relation(fields: [schoolId], references: [id])
+  resolvedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([schoolId])
+  @@index([status])
+  @@index([priority])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  entity    String
+  entityId  String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([entity, entityId])
+}
+
+model AppConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model AgentMessage {
+  id              String    @id @default(cuid())
+  role            String    // user | assistant | system
+  content         String
+  dataSourcesUsed String?   // JSON string array e.g. ["Attendance_2026.xlsx"]
+  lastDataUpdate  DateTime?
+  reportId        String?   // ID of generated report if user asked to create a report
+  userId          String?
+  schoolId        String?
+  createdAt       DateTime  @default(now())
+
+  @@index([userId])
+  @@index([reportId])
+  @@index([schoolId])
+  @@index([createdAt])
+}
+
+model Complaint {
+  id             String    @id @default(cuid())
+  schoolId       String
+  school         School    @relation(fields: [schoolId], references: [id])
+  source         String    // WHATSAPP | PHONE | EMAIL | WALK_IN | OTHER
+  title          String
+  description    String
+  priority       String    @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  status         String    @default("OPEN")   // OPEN | IN_PROGRESS | RESOLVED
+  assignedTo     String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([schoolId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  schoolId    String?
+  school      School?   @relation(fields: [schoolId], references: [id])
+  priority    String    @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  status      String    @default("OPEN")   // OPEN | IN_PROGRESS | DONE
+  dueDate     DateTime?
+  assignedTo  String?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([schoolId])
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+}
+
+model Meeting {
+  id           String   @id @default(cuid())
+  title        String
+  date         DateTime
+  location     String?
+  schoolIds    String   // JSON string array of schoolIds involved
+  participants String?
+  agenda       String?
+  status       String   @default("SCHEDULED") // SCHEDULED | DONE | CANCELLED
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([date])
+  @@index([status])
+}
+
+model ImportBatch {
+  id              String             @id @default(cuid())
+  sourceId        String?
+  source          DataSource?        @relation(fields: [sourceId], references: [id])
+  sourceType      String
+  datasetType     String
+  fileName        String
+  fileId          String?
+  fileMimeType    String?
+  fileSize        Int?
+  fileChecksum    String?
+  schoolId        String?
+  school          School?            @relation(fields: [schoolId], references: [id])
+  triggeredById   String
+  triggeredBy     User               @relation("ImportBatchTriggered", fields: [triggeredById], references: [id])
+  mapping         String?
+  status          String             @default("PENDING") // PENDING | PREVIEWED | COMPLETED | PARTIAL | FAILED | ROLLED_BACK
+  rowCount        Int                @default(0)
+  importedCount   Int                @default(0)
+  updatedCount    Int                @default(0)
+  skippedCount    Int                @default(0)
+  failedCount     Int                @default(0)
+  errors          String?            // JSON array of row-level errors
+  summary         String?            // JSON object with validation/import summary
+  preview         String?            // JSON object with preview rows / headers
+  rolledBackAt    DateTime?
+  rolledBackById   String?
+  rolledBackBy     User?              @relation("ImportBatchRollback", fields: [rolledBackById], references: [id])
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  items           ImportBatchItem[]
+
+  @@index([sourceId])
+  @@index([sourceType])
+  @@index([datasetType])
+  @@index([schoolId])
+  @@index([triggeredById])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ImportBatchItem {
+  id            String      @id @default(cuid())
+  batchId       String
+  batch         ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rowNumber     Int
+  entityType    String
+  entityId      String?
+  naturalKey    String?
+  action        String      // CREATE | UPDATE | SKIP | FAIL
+  schoolId      String?
+  beforeState   String?
+  afterState    String?
+  rawRow        String?
+  errors        String?
+  createdAt     DateTime    @default(now())
+
+  @@index([batchId])
+  @@index([entityType, entityId])
+  @@index([schoolId])
+  @@index([action])
+  @@index([rowNumber])
+}
