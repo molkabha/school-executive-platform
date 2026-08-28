@@ -49,7 +49,8 @@ router.use(requireSupervisorAccess);
  */
 router.get('/modules', async (req: AuthRequest, res) => {
   try {
-    const { schoolId } = req.query as { schoolId?: string };
+    const { schoolId: querySchoolId } = req.query as { schoolId?: string };
+    const schoolId = req.user!.schoolId || querySchoolId;
     const schoolFilter: any = {};
     if (schoolId) schoolFilter.schoolId = schoolId;
 
@@ -90,7 +91,8 @@ router.get('/modules', async (req: AuthRequest, res) => {
 router.get('/:module', async (req: AuthRequest, res) => {
   try {
     const { module } = req.params;
-    const { schoolId } = req.query as { schoolId?: string };
+    const { schoolId: querySchoolId } = req.query as { schoolId?: string };
+    const schoolId = req.user!.schoolId || querySchoolId;
     const schoolFilter: any = {};
     if (schoolId) schoolFilter.schoolId = schoolId;
 
@@ -138,10 +140,15 @@ router.post('/:module/entry', validateBody(staffEntrySchema), async (req: AuthRe
       housingIssueCount, housingCategory, housingSeverity, resolutionSla,
     } = req.body;
 
+    const effectiveSchoolId = req.user!.schoolId || schoolId;
+    if (!effectiveSchoolId) {
+      return res.status(400).json({ message: 'schoolId is required' });
+    }
+
     const entry = await prisma.staffModuleEntry.create({
       data: {
         moduleName: module,
-        schoolId,
+        schoolId: effectiveSchoolId,
         title,
         status: status || 'ACTIVE',
         metrics: metrics ? JSON.stringify(metrics) : null,
@@ -248,10 +255,12 @@ router.patch('/:module/entry/:id', validateBody(staffEntrySchema), async (req: A
       housingIssueCount, housingCategory, housingSeverity, resolutionSla,
     } = req.body;
 
+    const effectiveSchoolId = req.user!.schoolId || schoolId || existing.schoolId;
+
     const entry = await prisma.staffModuleEntry.update({
       where: { id },
       data: {
-        schoolId,
+        schoolId: effectiveSchoolId,
         title,
         status: status || existing.status,
         metrics: metrics ? JSON.stringify(metrics) : existing.metrics,

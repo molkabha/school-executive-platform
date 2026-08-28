@@ -15,16 +15,19 @@ router.use(requireSupervisorAccess);
  */
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { status, priority, type, schoolId } = req.query as {
+    const { status, priority, type, schoolId: querySchoolId } = req.query as {
       status?: string; priority?: string; type?: string; schoolId?: string;
     };
 
     const where: any = {};
+    const schoolId = req.user!.schoolId || querySchoolId;
 
     if (status) where.status = status;
     if (priority) where.priority = priority;
     if (type) where.type = type;
-    if (schoolId) where.schoolId = schoolId;
+    if (schoolId) {
+      where.OR = [{ schoolId }, { schoolId: null }];
+    }
 
     const alerts = await prisma.alert.findMany({
       where,
@@ -46,6 +49,8 @@ router.post('/', validateBody(createAlertSchema), async (req: AuthRequest, res) 
   try {
     const { type, source, priority, title, details, schoolId } = req.body;
 
+    const effectiveSchoolId = req.user!.schoolId || schoolId || null;
+
     const alert = await prisma.alert.create({
       data: {
         type,
@@ -53,7 +58,7 @@ router.post('/', validateBody(createAlertSchema), async (req: AuthRequest, res) 
         priority,
         title,
         details: details || null,
-        schoolId: schoolId || null,
+        schoolId: effectiveSchoolId,
         status: 'OPEN',
       },
     });

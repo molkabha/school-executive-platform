@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateToken, requireSupervisorAccess, audit, AuthRequest, safeJsonParse, getErrorMessage } from '../utils';
+import { authenticateToken, requireSupervisorAccess, audit, AuthRequest, safeJsonParse, getErrorMessage, assertSchoolAccess } from '../utils';
 import { prisma } from '../prisma';
 import { validateBody, createDocumentSchema } from '../middleware/validate';
 const router = Router();
@@ -126,6 +126,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
     });
 
     if (!document) return res.status(404).json({ message: 'Document not found' });
+    if (!assertSchoolAccess(req.user!.schoolId, document.schoolId, res)) return;
 
     res.json({
       data: {
@@ -148,10 +149,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
   try {
     const document = await prisma.document.findUnique({ where: { id: req.params.id } });
     if (!document) return res.status(404).json({ message: 'Document not found' });
-
-    if (document.ownerId !== req.user!.id && req.user!.role !== 'GENERAL_SUPERVISOR') {
-      return res.status(403).json({ message: 'Forbidden' });
-    }
+    if (!assertSchoolAccess(req.user!.schoolId, document.schoolId, res)) return;
 
     await prisma.document.delete({ where: { id: req.params.id } });
     await audit(req.user!.id, 'delete_document', 'Document', req.params.id, `Deleted ${document.name}`);
@@ -174,6 +172,7 @@ router.post('/:id/analysis', async (req: AuthRequest, res) => {
 
     const document = await prisma.document.findUnique({ where: { id: req.params.id } });
     if (!document) return res.status(404).json({ message: 'Document not found' });
+    if (!assertSchoolAccess(req.user!.schoolId, document.schoolId, res)) return;
 
     const history = safeJsonParse<any[]>(document.analysisHistory, []);
     history.unshift({ ...analysis, analyzedAt: new Date().toISOString() });

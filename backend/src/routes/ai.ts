@@ -59,6 +59,7 @@ router.post('/analyze', validateBody(analyzeSchema), async (req: AuthRequest, re
 router.post('/report', validateBody(aiReportSchema), async (req: AuthRequest, res) => {
   const { title, scope, period, modules, schoolId: bodySchoolId } = req.body;
   const schoolId = req.user!.schoolId || bodySchoolId;
+  const effectiveScope = req.user!.schoolId ? 'SCHOOL_SPECIFIC' : (schoolId ? 'SCHOOL_SPECIFIC' : scope);
 
   try {
     let schoolName: string | undefined;
@@ -69,14 +70,14 @@ router.post('/report', validateBody(aiReportSchema), async (req: AuthRequest, re
 
     const result = await generateExecutiveReport({
       title: title || 'التقرير التنفيذي',
-      scope,
+      scope: effectiveScope,
       period,
       modules,
       schoolId,
       schoolName,
     });
 
-    await audit(req.user!.id, 'generate_ai_report', 'AIReport', 'none', `Generated ${period} report for ${scope}`);
+    await audit(req.user!.id, 'generate_ai_report', 'AIReport', 'none', `Generated ${period} report for ${effectiveScope}`);
 
     res.json({ data: result });
   } catch (error: unknown) {

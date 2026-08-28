@@ -362,19 +362,21 @@ export async function processAgentMessage(
     try {
       const generatedReportData = await generateExecutiveReport({
         title: `تقرير تنفيذي بناءً على الاستعلام: ${truncate(trimmedQuery, 30)}`,
-        scope: 'ALL_SCHOOLS',
+        scope: schoolId ? 'SCHOOL_SPECIFIC' : 'ALL_SCHOOLS',
         period: 'MONTHLY',
         modules: ['attendance', 'housing', 'teacher_voice', 'turnover', 'workforce_plan'],
+        schoolId: schoolId || undefined,
       });
 
       const savedReport = await prisma.report.create({
         data: {
           title: `تقرير تنفيذي ذكي: ${truncate(trimmedQuery, 40)}`,
-          scope: 'ALL_SCHOOLS',
+          scope: schoolId ? 'SCHOOL_SPECIFIC' : 'ALL_SCHOOLS',
           period: 'MONTHLY',
           modules: 'attendance,housing,teacher_voice,turnover,workforce_plan',
           aiOutput: JSON.stringify(generatedReportData),
           createdById: userId,
+          schoolId: schoolId || null,
         },
       });
 

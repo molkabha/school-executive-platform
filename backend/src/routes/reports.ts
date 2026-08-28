@@ -117,11 +117,12 @@ router.post('/', validateBody(createReportSchema), async (req: AuthRequest, res)
     const { title, scope, period, modules, schoolId: bodySchoolId, aiOutput } = req.body;
     // School-scoped users can only create reports for their own school.
     const schoolId = req.user!.schoolId || bodySchoolId || null;
+    const effectiveScope = req.user!.schoolId ? 'SCHOOL_SPECIFIC' : (schoolId ? 'SCHOOL_SPECIFIC' : scope);
 
     const report = await prisma.report.create({
       data: {
         title,
-        scope,
+        scope: effectiveScope,
         period,
         modules: Array.isArray(modules) ? modules.join(',') : String(modules),
         aiOutput: JSON.stringify(aiOutput || {}),
@@ -147,6 +148,7 @@ router.post('/generate', validateBody(generateReportSchema), async (req: AuthReq
     const { title, scope, period, modules, schoolId: bodySchoolId } = req.body;
     // School-scoped users can only generate reports for their own school.
     const schoolId = req.user!.schoolId || bodySchoolId || null;
+    const effectiveScope = req.user!.schoolId ? 'SCHOOL_SPECIFIC' : (schoolId ? 'SCHOOL_SPECIFIC' : scope);
 
     let schoolName: string | undefined;
     if (schoolId) {
@@ -157,7 +159,7 @@ router.post('/generate', validateBody(generateReportSchema), async (req: AuthReq
     // Call AI service
     const aiOutput = await generateExecutiveReport({
       title,
-      scope,
+      scope: effectiveScope,
       period,
       modules,
       schoolId,
@@ -168,7 +170,7 @@ router.post('/generate', validateBody(generateReportSchema), async (req: AuthReq
     const report = await prisma.report.create({
       data: {
         title,
-        scope,
+        scope: effectiveScope,
         period,
         modules: modules.join(','),
         aiOutput: JSON.stringify(aiOutput),

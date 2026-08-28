@@ -15,7 +15,7 @@ router.use(requireSupervisorAccess);
  */
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { schoolId, status, priority, page, limit } = req.query as {
+    const { schoolId: querySchoolId, status, priority, page, limit } = req.query as {
       schoolId?: string; status?: string; priority?: string;
       page?: string; limit?: string;
     };
@@ -24,6 +24,7 @@ router.get('/', async (req: AuthRequest, res) => {
     const skip = (Math.max(Number(page) || 1, 1) - 1) * take;
 
     const where: any = {};
+    const schoolId = req.user!.schoolId || querySchoolId;
     if (schoolId) where.schoolId = schoolId;
     if (status) where.status = status;
     if (priority) where.priority = priority;
@@ -56,12 +57,13 @@ router.get('/', async (req: AuthRequest, res) => {
 router.post('/', validateBody(createTaskSchema), async (req: AuthRequest, res) => {
   try {
     const { title, description, schoolId, priority, dueDate, assignedTo } = req.body;
+    const effectiveSchoolId = req.user!.schoolId || schoolId || null;
 
     const task = await prisma.task.create({
       data: {
         title,
         description: description || null,
-        schoolId: schoolId || null,
+        schoolId: effectiveSchoolId,
         priority: priority || 'MEDIUM',
         status: 'OPEN',
         dueDate: dueDate ? new Date(dueDate) : null,

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { Prisma } from '@prisma/client';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { z } from 'zod';
-import { authenticateToken, requireSupervisorAccess, audit, AuthRequest, safeJsonParse } from '../utils';
+import { authenticateToken, requireSupervisorAccess, audit, AuthRequest, safeJsonParse, assertSchoolAccess } from '../utils';
 import { prisma } from '../prisma';
 import { validateBody, createSourceSchema, connectionConfigSchemaForType } from '../middleware/validate';
 import { SOURCE_MODULE_OPTIONS } from '../constants/modules';
@@ -62,20 +62,9 @@ router.get('/', async (req: AuthRequest, res) => {
     const where: any = {};
     const schoolId = user.schoolId || querySchoolId;
 
-    if (user.role !== 'GENERAL_SUPERVISOR') {
-      where.ownerId = user.id;
-    } else if (schoolId) {
-      // SCOPING NOTE (Item 9): When a specific schoolId is supplied, this endpoint uses a STRICT
-      // filter (exact match only) — it intentionally excludes global sources (schoolId = null).
-      // Rationale: the Sources list is a management view where the user wants to see exactly what
-      // belongs to the selected school. Global (null) sources appear in ALL schools' lists, so
-      // they are shown when no school is filtered (the OR-null branch below).
-      //
-      // This differs from dashboard.ts / agent.ts / reportSummary.ts which use OR-null even when
-      // a specific school is selected, because those views need to aggregate global data into the
-      // school context for AI analysis. If you need global sources to appear in the school-scoped
-      // list here too, change this branch to:
-      //   where.OR = [{ schoolId }, { schoolId: null }];
+    if (schoolId) {
+      // SCOPING NOTE: When schoolId is enforced (via user.schoolId or query filter for global supervisor),
+      // strictly filter to that school's sources.
       where.schoolId = schoolId;
     } else {
       const activeSchools = await prisma.school.findMany({ where: { isActive: true }, select: { id: true } });
@@ -174,6 +163,7 @@ router.post('/:id/gmail/connect', async (req: AuthRequest, res) => {
   try {
     const source = await prisma.dataSource.findUnique({ where: { id: req.params.id } });
     if (!source) return res.status(404).json({ message: 'Source not found' });
+    if (!assertSchoolAccess(req.user!.schoolId, source.schoolId, res)) return;
     if (source.type !== 'GMAIL') {
       return res.status(400).json({ message: 'Gmail connection is only available for Gmail sources.' });
     }
@@ -190,6 +180,7 @@ router.post('/:id/microsoft/connect', async (req: AuthRequest, res) => {
   try {
     const source = await prisma.dataSource.findUnique({ where: { id: req.params.id } });
     if (!source) return res.status(404).json({ message: 'Source not found' });
+    if (!assertSchoolAccess(req.user!.schoolId, source.schoolId, res)) return;
     if (!['ONEDRIVE', 'SHAREPOINT', 'OUTLOOK'].includes(source.type)) {
       return res.status(400).json({ message: 'Microsoft connection is only available for OneDrive, SharePoint, or Outlook sources.' });
     }
@@ -210,9 +201,7 @@ router.put('/:id/connect', async (req: AuthRequest, res) => {
   try {
     const existing = await prisma.dataSource.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ message: 'Source not found' });
-    if (existing.ownerId !== req.user!.id) {
-      return res.status(403).json({ message: 'Forbidden: you do not own this data source.' });
-    }
+    if (!assertSchoolAccess(req.user!.schoolId, existing.schoolId, res)) return;
     const existingStoredConfig = safeJsonParse<Record<string, any>>(existing.connectionConfig, {});
 
     // Validate the shape of connectionConfig based on the source's existing type,
@@ -336,9 +325,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
 
     const existing = await prisma.dataSource.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ message: 'Source not found' });
-    if (existing.ownerId !== req.user!.id) {
-      return res.status(403).json({ message: 'Forbidden: you do not own this data source.' });
-    }
+    if (!assertSchoolAccess(req.user!.schoolId, existing.schoolId, res)) return;
 
     const source = await prisma.dataSource.update({
       where: { id: req.params.id },
@@ -363,10 +350,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
   try {
     const source = await prisma.dataSource.findUnique({ where: { id: req.params.id } });
     if (!source) return res.status(404).json({ message: 'Source not found' });
-
-    if (source.ownerId !== req.user!.id && req.user!.role !== 'GENERAL_SUPERVISOR') {
-      return res.status(403).json({ message: 'Forbidden' });
-    }
+    if (!assertSchoolAccess(req.user!.schoolId, source.schoolId, res)) return;
 
     await prisma.dataSource.delete({ where: { id: req.params.id } });
     await audit(req.user!.id, 'delete_source', 'DataSource', req.params.id, `Deleted: ${source.name}`);

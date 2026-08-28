@@ -312,7 +312,8 @@ router.post('/batches/:id/rollback', async (req: AuthRequest, res) => {
       select: { id: true, triggeredById: true, schoolId: true },
     });
     if (!batch) return res.status(404).json({ message: 'Import batch not found' });
-    if (batch.triggeredById !== req.user!.id) {
+    if (!assertSchoolAccess(req.user!.schoolId, batch.schoolId, res)) return;
+    if (batch.triggeredById !== req.user!.id && req.user!.role !== 'GENERAL_SUPERVISOR') {
       return res.status(403).json({ message: 'You are not authorized to roll back this import batch.' });
     }
 
@@ -337,9 +338,7 @@ router.post('/sources/:sourceId/preview', validateBody(previewSchema), async (re
     });
 
     if (!source) return res.status(404).json({ message: 'Source not found' });
-    if (source.ownerId !== req.user!.id) {
-      return res.status(403).json({ message: 'Forbidden: you do not own this data source.' });
-    }
+    if (!assertSchoolAccess(req.user!.schoolId, source.schoolId, res)) return;
     let sourceFile: {
       fileId: string;
       fileName: string;
@@ -428,9 +427,7 @@ router.post('/sources/:sourceId/import', validateBody(importSchema), async (req:
     });
 
     if (!source) return res.status(404).json({ message: 'Source not found' });
-    if (source.ownerId !== req.user!.id) {
-      return res.status(403).json({ message: 'Forbidden: you do not own this data source.' });
-    }
+    if (!assertSchoolAccess(req.user!.schoolId, source.schoolId, res)) return;
     let sourceFile: {
       fileId: string;
       fileName: string;
@@ -593,7 +590,7 @@ router.post('/excel-upload/import', validateBody(excelUploadImportSchema), async
         module,
         status: 'CONNECTED',
         ownerId: req.user!.id,
-        schoolId: schoolId || null,
+        schoolId: req.user!.schoolId || schoolId || null,
         lastSync: new Date(),
         connectionConfig: JSON.stringify({
           fileName: uploaded.info.fileName,

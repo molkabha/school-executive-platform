@@ -207,6 +207,151 @@ async function main() {
         leaksBatchBIntoA ? 'School B batch leaked into School A scope' : undefined
       );
 
+      // ---- Check 7: Complaint scoping isolation ----
+      const complaintA = await tx.complaint.create({
+        data: {
+          schoolId: schoolA.id,
+          source: 'PARENT',
+          title: `Complaint for A ${suffix}`,
+          description: 'Details A',
+        },
+      });
+      const complaintB = await tx.complaint.create({
+        data: {
+          schoolId: schoolB.id,
+          source: 'PARENT',
+          title: `Complaint for B ${suffix}`,
+          description: 'Details B',
+        },
+      });
+      const complaintsForA = await tx.complaint.findMany({
+        where: { schoolId: schoolA.id },
+      });
+      const leaksComplaintBIntoA = complaintsForA.some((c) => c.id === complaintB.id);
+      check(
+        'School A complaint scope excludes School B complaints',
+        complaintsForA.some((c) => c.id === complaintA.id) && !leaksComplaintBIntoA,
+        leaksComplaintBIntoA ? 'School B complaint leaked into School A scope' : undefined
+      );
+
+      // ---- Check 8: Task scoping isolation ----
+      const taskA = await tx.task.create({
+        data: {
+          schoolId: schoolA.id,
+          title: `Task for A ${suffix}`,
+        },
+      });
+      const taskB = await tx.task.create({
+        data: {
+          schoolId: schoolB.id,
+          title: `Task for B ${suffix}`,
+        },
+      });
+      const tasksForA = await tx.task.findMany({
+        where: { schoolId: schoolA.id },
+      });
+      const leaksTaskBIntoA = tasksForA.some((t) => t.id === taskB.id);
+      check(
+        'School A task scope excludes School B tasks',
+        tasksForA.some((t) => t.id === taskA.id) && !leaksTaskBIntoA,
+        leaksTaskBIntoA ? 'School B task leaked into School A scope' : undefined
+      );
+
+      // ---- Check 9: DataSource scoping isolation ----
+      const sourceA = await tx.dataSource.create({
+        data: {
+          name: `Source for A ${suffix}`,
+          type: 'GOOGLE_DRIVE',
+          provider: 'GOOGLE_DRIVE',
+          module: 'attendance',
+          status: 'CONNECTED',
+          ownerId: testUser.id,
+          schoolId: schoolA.id,
+        },
+      });
+      const sourceB = await tx.dataSource.create({
+        data: {
+          name: `Source for B ${suffix}`,
+          type: 'GOOGLE_DRIVE',
+          provider: 'GOOGLE_DRIVE',
+          module: 'attendance',
+          status: 'CONNECTED',
+          ownerId: testUser.id,
+          schoolId: schoolB.id,
+        },
+      });
+      const sourcesForA = await tx.dataSource.findMany({
+        where: { schoolId: schoolA.id },
+      });
+      const leaksSourceBIntoA = sourcesForA.some((s) => s.id === sourceB.id);
+      check(
+        'School A source scope excludes School B sources',
+        sourcesForA.some((s) => s.id === sourceA.id) && !leaksSourceBIntoA,
+        leaksSourceBIntoA ? 'School B source leaked into School A scope' : undefined
+      );
+
+      // ---- Check 10: Document scoping isolation ----
+      const docA = await tx.document.create({
+        data: {
+          name: `Doc for A ${suffix}`,
+          sourceType: 'LOCAL',
+          module: 'attendance',
+          ownerId: testUser.id,
+          schoolId: schoolA.id,
+        },
+      });
+      const docB = await tx.document.create({
+        data: {
+          name: `Doc for B ${suffix}`,
+          sourceType: 'LOCAL',
+          module: 'attendance',
+          ownerId: testUser.id,
+          schoolId: schoolB.id,
+        },
+      });
+      const docsForA = await tx.document.findMany({
+        where: { schoolId: schoolA.id },
+      });
+      const leaksDocBIntoA = docsForA.some((d) => d.id === docB.id);
+      check(
+        'School A document scope excludes School B documents',
+        docsForA.some((d) => d.id === docA.id) && !leaksDocBIntoA,
+        leaksDocBIntoA ? 'School B document leaked into School A scope' : undefined
+      );
+
+      // ---- Check 11: Meeting JSON schoolIds filter ----
+      const meetingA = await tx.meeting.create({
+        data: {
+          title: `Meeting for A ${suffix}`,
+          date: new Date(),
+          schoolIds: JSON.stringify([schoolA.id]),
+        },
+      });
+      const meetingB = await tx.meeting.create({
+        data: {
+          title: `Meeting for B ${suffix}`,
+          date: new Date(),
+          schoolIds: JSON.stringify([schoolB.id]),
+        },
+      });
+      const allMeetings = await tx.meeting.findMany({
+        where: { id: { in: [meetingA.id, meetingB.id] } },
+      });
+      const filteredForA = allMeetings.filter((m) => {
+        try {
+          const ids = JSON.parse(m.schoolIds);
+          return ids.length === 0 || ids.includes(schoolA.id);
+        } catch {
+          return false;
+        }
+      });
+      const leaksMeetingBIntoA = filteredForA.some((m) => m.id === meetingB.id);
+      check(
+        'School A meeting scope excludes School B meetings',
+        filteredForA.some((m) => m.id === meetingA.id) && !leaksMeetingBIntoA,
+        leaksMeetingBIntoA ? 'School B meeting leaked into School A scope' : undefined
+      );
+
       console.log('\n--- School Isolation Regression Results ---');
       for (const r of results) {
         console.log(`${r.passed ? '✅ PASS' : '❌ FAIL'} — ${r.name}${r.detail ? ` (${r.detail})` : ''}`);

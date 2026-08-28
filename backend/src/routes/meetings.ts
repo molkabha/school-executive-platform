@@ -42,7 +42,7 @@ async function enrichMeetings(meetings: any[]) {
  * Returns today's SCHEDULED meetings. Used by the dashboard.
  * IMPORTANT: This route must be defined BEFORE /:id to avoid path conflict.
  */
-router.get('/today', async (_req, res) => {
+router.get('/today', async (req: AuthRequest, res) => {
   try {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
@@ -57,7 +57,19 @@ router.get('/today', async (_req, res) => {
       orderBy: { date: 'asc' },
     });
 
-    const enriched = await enrichMeetings(meetings);
+    let filtered = meetings;
+    if (req.user?.schoolId) {
+      filtered = meetings.filter((m: any) => {
+        try {
+          const ids = safeJsonParse<string[]>(m.schoolIds, []);
+          return ids.length === 0 || ids.includes(req.user!.schoolId!);
+        } catch {
+          return false;
+        }
+      });
+    }
+
+    const enriched = await enrichMeetings(filtered);
     res.json({ data: enriched });
   } catch (error: unknown) {
     console.error('[Meetings Today Error]', getErrorMessage(error));
@@ -72,9 +84,10 @@ router.get('/today', async (_req, res) => {
  */
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { date, status, upcoming, schoolId } = req.query as {
+    const { date, status, upcoming, schoolId: querySchoolId } = req.query as {
       date?: string; status?: string; upcoming?: string; schoolId?: string;
     };
+    const schoolId = req.user!.schoolId || querySchoolId;
 
     const where: any = {};
 
@@ -103,7 +116,7 @@ router.get('/', async (req: AuthRequest, res) => {
       filtered = meetings.filter((m: any) => {
         try {
           const ids = safeJsonParse<string[]>(m.schoolIds, []);
-          return ids.includes(schoolId);
+          return ids.length === 0 || ids.includes(schoolId);
         } catch {
           return false;
         }
@@ -125,13 +138,17 @@ router.get('/', async (req: AuthRequest, res) => {
 router.post('/', validateBody(createMeetingSchema), async (req: AuthRequest, res) => {
   try {
     const { title, date, location, schoolIds, participants, agenda } = req.body;
+    let finalSchoolIds: string[] = schoolIds || [];
+    if (req.user!.schoolId && !finalSchoolIds.includes(req.user!.schoolId)) {
+      finalSchoolIds.push(req.user!.schoolId);
+    }
 
     const meeting = await prisma.meeting.create({
       data: {
         title,
         date: new Date(date),
         location: location || null,
-        schoolIds: JSON.stringify(schoolIds || []),
+        schoolIds: JSON.stringify(finalSchoolIds),
         participants: participants || null,
         agenda: agenda || null,
         status: 'SCHEDULED',
