@@ -30,6 +30,7 @@ jobs:
     env:
       # Runtime vars expected by Prisma and app bootstrap
       DATABASE_URL: postgresql://ci_user:ci_pass@localhost:5432/school_ci
+      DIRECT_URL: postgresql://ci_user:ci_pass@localhost:5432/school_ci
       JWT_SECRET: ci_jwt_secret_placeholder_32chars!!
       APP_ENCRYPTION_KEY: ci_encryption_key_placeholder_32ch
       NODE_ENV: test
