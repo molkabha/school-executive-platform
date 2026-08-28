@@ -57,7 +57,8 @@ router.post('/analyze', validateBody(analyzeSchema), async (req: AuthRequest, re
  * Generate a full structured executive report.
  */
 router.post('/report', validateBody(aiReportSchema), async (req: AuthRequest, res) => {
-  const { title, scope, period, modules, schoolId } = req.body;
+  const { title, scope, period, modules, schoolId: bodySchoolId } = req.body;
+  const schoolId = req.user!.schoolId || bodySchoolId;
 
   try {
     let schoolName: string | undefined;

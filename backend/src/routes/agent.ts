@@ -13,7 +13,8 @@ router.use(requireSupervisorAccess);
  * Executive AI Agent RAG Chat Query
  */
 router.post('/chat', validateBody(agentChatSchema), async (req: AuthRequest, res) => {
-  const { message, history, schoolId } = req.body;
+  const { message, history, schoolId: bodySchoolId } = req.body;
+  const schoolId = req.user!.schoolId || bodySchoolId;
 
   try {
     const userId = req.user!.id;
@@ -46,7 +47,8 @@ router.post('/chat', validateBody(agentChatSchema), async (req: AuthRequest, res
 router.get('/history', async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
-    const { schoolId } = req.query as { schoolId?: string };
+    const { schoolId: querySchoolId } = req.query as { schoolId?: string };
+    const schoolId = req.user!.schoolId || querySchoolId;
 
     const where: any = { userId };
     if (schoolId) {
@@ -110,7 +112,8 @@ router.get('/history', async (req: AuthRequest, res) => {
 router.delete('/history', async (req: AuthRequest, res) => {
   try {
     const userId = req.user!.id;
-    const { schoolId } = req.query as { schoolId?: string };
+    const { schoolId: querySchoolId } = req.query as { schoolId?: string };
+    const schoolId = req.user!.schoolId || querySchoolId;
 
     const where: any = { userId };
     if (schoolId) {
@@ -136,7 +139,8 @@ router.delete('/history', async (req: AuthRequest, res) => {
  */
 router.get('/summary-today', async (req: AuthRequest, res) => {
   try {
-    const { schoolId } = req.query as { schoolId?: string };
+    const { schoolId: querySchoolId } = req.query as { schoolId?: string };
+    const schoolId = req.user!.schoolId || querySchoolId;
     const summary = await getExecutiveSummaryToday(schoolId);
     res.json({ data: summary });
   } catch (error: unknown) {
@@ -151,7 +155,8 @@ router.get('/summary-today', async (req: AuthRequest, res) => {
  */
 router.post('/summary-today/refresh', async (req: AuthRequest, res) => {
   try {
-    const { schoolId } = req.body;
+    const { schoolId: bodySchoolId } = req.body;
+    const schoolId = req.user!.schoolId || bodySchoolId;
     const cacheKey = schoolId ? `ai_summary_cache_${schoolId}` : 'ai_summary_cache';
     await prisma.appConfig.deleteMany({ where: { key: cacheKey } });
     const summary = await getExecutiveSummaryToday(schoolId);

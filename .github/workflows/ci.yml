@@ -53,6 +53,10 @@ jobs:
         working-directory: backend
         run: npm ci
 
+      - name: Security Scan (npm audit)
+        working-directory: backend
+        run: npm audit --audit-level=high
+
       - name: Prisma — generate client
         working-directory: backend
         run: npx prisma generate
@@ -102,6 +106,10 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Security Scan (npm audit)
+        working-directory: frontend
+        run: npm audit --audit-level=high
 
       - name: TypeScript — type-check (noEmit)
         working-directory: frontend

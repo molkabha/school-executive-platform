@@ -134,7 +134,78 @@ async function main() {
       // belongs only to School B (none created here, but assert no
       // cross-school leakage happens via a negative control school).
       const schoolBOnlyLeak = orNullScopedToA.some((a) => a.schoolId === schoolB.id);
-      check('OR-null scoping to School A excludes School B-only records', !schoolBOnlyLeak);
+      const testUser = await tx.user.create({
+        data: {
+          email: `testuser_${suffix}@test.local`,
+          name: 'Isolation Test User',
+          password: 'hashed_password_placeholder',
+          role: 'GENERAL_SUPERVISOR',
+        },
+      });
+
+      // ---- Check 5: Report scoping isolation ----
+      const reportA = await tx.report.create({
+        data: {
+          title: `Report for A ${suffix}`,
+          scope: 'SINGLE_SCHOOL',
+          schoolId: schoolA.id,
+          period: 'MONTHLY',
+          modules: 'attendance',
+          aiOutput: '{}',
+          createdById: testUser.id,
+        },
+      });
+      const reportB = await tx.report.create({
+        data: {
+          title: `Report for B ${suffix}`,
+          scope: 'SINGLE_SCHOOL',
+          schoolId: schoolB.id,
+          period: 'MONTHLY',
+          modules: 'attendance',
+          aiOutput: '{}',
+          createdById: testUser.id,
+        },
+      });
+      const reportsForA = await tx.report.findMany({
+        where: { schoolId: schoolA.id },
+      });
+      const leaksReportBIntoA = reportsForA.some((r) => r.id === reportB.id);
+      check(
+        'School A report scope excludes School B reports',
+        reportsForA.some((r) => r.id === reportA.id) && !leaksReportBIntoA,
+        leaksReportBIntoA ? 'School B report leaked into School A scope' : undefined
+      );
+
+      // ---- Check 6: ImportBatch scoping isolation ----
+      const batchA = await tx.importBatch.create({
+        data: {
+          datasetType: 'attendance',
+          sourceType: 'LOCAL_FILE',
+          fileName: 'attendance_a.csv',
+          schoolId: schoolA.id,
+          triggeredById: testUser.id,
+          status: 'COMPLETED',
+        },
+      });
+      const batchB = await tx.importBatch.create({
+        data: {
+          datasetType: 'attendance',
+          sourceType: 'LOCAL_FILE',
+          fileName: 'attendance_b.csv',
+          schoolId: schoolB.id,
+          triggeredById: testUser.id,
+          status: 'COMPLETED',
+        },
+      });
+      const batchesForA = await tx.importBatch.findMany({
+        where: { schoolId: schoolA.id },
+      });
+      const leaksBatchBIntoA = batchesForA.some((b) => b.id === batchB.id);
+      check(
+        'School A batch scope excludes School B batches',
+        batchesForA.some((b) => b.id === batchA.id) && !leaksBatchBIntoA,
+        leaksBatchBIntoA ? 'School B batch leaked into School A scope' : undefined
+      );
 
       console.log('\n--- School Isolation Regression Results ---');
       for (const r of results) {

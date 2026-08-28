@@ -57,9 +57,10 @@ router.use(requireSupervisorAccess);
 router.get('/', async (req: AuthRequest, res) => {
   try {
     const user = req.user!;
-    const { module, status, schoolId } = req.query as { module?: string; status?: string; schoolId?: string };
+    const { module, status, schoolId: querySchoolId } = req.query as { module?: string; status?: string; schoolId?: string };
 
     const where: any = {};
+    const schoolId = user.schoolId || querySchoolId;
 
     if (user.role !== 'GENERAL_SUPERVISOR') {
       where.ownerId = user.id;
@@ -139,7 +140,7 @@ router.post('/', validateBody(createSourceSchema), async (req: AuthRequest, res)
         module,
         status: connectionReady ? 'CONNECTED' : 'NOT_CONNECTED',
         ownerId: user.id,
-        schoolId: schoolId || null,
+        schoolId: user.schoolId || schoolId || null,
         lastSync: connectionReady ? new Date() : null,
         connectionConfig: connectionConfig ? JSON.stringify(connectionConfig) : null,
         metadata: JSON.stringify({ createdBy: user.name, createdAt: new Date().toISOString() }),

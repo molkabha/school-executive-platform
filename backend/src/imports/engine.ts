@@ -948,34 +948,36 @@ export async function rollbackImportBatch(prisma: PrismaClient, batchId: string,
   }
 
   const orderedItems = [...batch.items].sort((a, b) => b.rowNumber - a.rowNumber);
-  for (const item of orderedItems) {
-    if (!item.entityId || item.action === 'FAIL' || item.action === 'SKIP') {
-      continue;
+  const updated = await prisma.$transaction(async (tx) => {
+    for (const item of orderedItems) {
+      if (!item.entityId || item.action === 'FAIL' || item.action === 'SKIP') {
+        continue;
+      }
+
+      if (item.action === 'CREATE') {
+        await deleteImportedEntity(tx, item.entityType, item.entityId);
+        continue;
+      }
+
+      if (item.action === 'UPDATE' && item.beforeState) {
+        await restoreImportedEntity(tx, item.entityType, item.entityId, JSON.parse(item.beforeState));
+      }
     }
 
-    if (item.action === 'CREATE') {
-      await deleteImportedEntity(prisma, item.entityType, item.entityId);
-      continue;
-    }
-
-    if (item.action === 'UPDATE' && item.beforeState) {
-      await restoreImportedEntity(prisma, item.entityType, item.entityId, JSON.parse(item.beforeState));
-    }
-  }
-
-  const updated = await prisma.importBatch.update({
-    where: { id: batch.id },
-    data: {
-      status: 'ROLLED_BACK',
-      rolledBackAt: new Date(),
-      rolledBackById,
-    },
+    return await tx.importBatch.update({
+      where: { id: batch.id },
+      data: {
+        status: 'ROLLED_BACK',
+        rolledBackAt: new Date(),
+        rolledBackById,
+      },
+    });
   });
 
   return updated;
 }
 
-async function deleteImportedEntity(prisma: PrismaClient, entityType: string, entityId: string) {
+async function deleteImportedEntity(prisma: any, entityType: string, entityId: string) {
   switch (entityType) {
     case 'School':
       await prisma.school.delete({ where: { id: entityId } });
@@ -1003,7 +1005,7 @@ async function deleteImportedEntity(prisma: PrismaClient, entityType: string, en
   }
 }
 
-async function restoreImportedEntity(prisma: PrismaClient, entityType: string, entityId: string, beforeState: any) {
+async function restoreImportedEntity(prisma: any, entityType: string, entityId: string, beforeState: any) {
   switch (entityType) {
     case 'School': {
       const { name, code, isActive } = beforeState;

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authenticateToken, requireSupervisorAccess, AuthRequest, safeJsonParse } from '../utils';
+import { authenticateToken, requireSupervisorAccess, AuthRequest, safeJsonParse, assertSchoolAccess } from '../utils';
 import { prisma } from '../prisma';
 import { validateBody } from '../middleware/validate';
 import { DATASET_DEFINITIONS } from '../imports/datasets';
@@ -60,6 +60,14 @@ const excelUploadImportSchema = z.object({
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_IMPORT_BYTES },
+  fileFilter: (req, file, cb) => {
+    const ext = file.originalname.toLowerCase();
+    if (ext.endsWith('.csv') || ext.endsWith('.xlsx') || ext.endsWith('.xls') || file.mimetype === 'text/csv' || file.mimetype.includes('spreadsheet')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Unsupported file type. Only .xlsx and .csv are supported.') as any, false);
+    }
+  }
 });
 
 function sendImportError(res: any, error: unknown, fallbackMessage: string) {
@@ -270,7 +278,7 @@ router.get('/batches', async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/batches/:id', async (req, res) => {
+router.get('/batches/:id', async (req: AuthRequest, res) => {
   try {
     const batch = await prisma.importBatch.findUnique({
       where: { id: req.params.id },
@@ -284,6 +292,12 @@ router.get('/batches/:id', async (req, res) => {
     });
 
     if (!batch) return res.status(404).json({ message: 'Import batch not found' });
+    
+    // Import batch IDOR protection
+    if (!assertSchoolAccess(req.user?.schoolId, batch.schoolId, res)) {
+      return;
+    }
+
     res.json({ data: batch });
   } catch (error) {
     console.error('[Import Batch Detail Error]', error);

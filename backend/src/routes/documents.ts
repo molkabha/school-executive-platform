@@ -29,9 +29,10 @@ router.use(requireSupervisorAccess);
 router.get('/', async (req: AuthRequest, res) => {
   try {
     const user = req.user!;
-    const { module, schoolId } = req.query as { module?: string; schoolId?: string };
+    const { module, schoolId: querySchoolId } = req.query as { module?: string; schoolId?: string };
 
     const where: any = {};
+    const schoolId = user.schoolId || querySchoolId;
 
     if (schoolId) {
       // SCOPING NOTE (Item 9): Strict filter — only documents explicitly linked to this school.
@@ -86,7 +87,7 @@ router.post('/', validateBody(createDocumentSchema), async (req: AuthRequest, re
         module,
         metadata: metadata ? JSON.stringify(metadata) : null,
         ownerId: req.user!.id,
-        schoolId: schoolId || null,
+        schoolId: req.user!.schoolId || schoolId || null,
         analysisHistory: '[]',
       },
       include: {
