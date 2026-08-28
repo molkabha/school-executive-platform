@@ -13,18 +13,30 @@ export interface TempUploadInfo {
   userId: string;
 }
 
-const TEMP_DIR = path.join(os.tmpdir(), 'school-executive-platform-uploads');
+const TEMP_DIR = path.resolve(os.tmpdir(), 'school-executive-platform-uploads');
 
 async function ensureTempDir() {
   await fs.mkdir(TEMP_DIR, { recursive: true });
 }
 
+function resolveSafePath(id: string, ext: string): string {
+  const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  if (!UUID_REGEX.test(id)) {
+    throw new Error('Invalid upload ID format.');
+  }
+  const resolved = path.resolve(TEMP_DIR, `${id}.${ext}`);
+  if (!resolved.startsWith(TEMP_DIR + path.sep)) {
+    throw new Error('Path traversal attempt detected.');
+  }
+  return resolved;
+}
+
 function manifestPath(id: string) {
-  return path.join(TEMP_DIR, `${id}.json`);
+  return resolveSafePath(id, 'json');
 }
 
 function filePath(id: string) {
-  return path.join(TEMP_DIR, `${id}.bin`);
+  return resolveSafePath(id, 'bin');
 }
 
 export async function createTempUpload(buffer: Buffer, fileName: string, mimeType: string | null, userId: string): Promise<TempUploadInfo> {

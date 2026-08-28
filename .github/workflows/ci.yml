@@ -1,0 +1,113 @@
+name: CI — Type-check, Build & Integration Tests
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  # JOB 1 — Backend: type-check, Prisma validate, isolated tests, build
+  backend:
+    name: Backend (TypeScript + Prisma + Integration tests)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_pass
+          POSTGRES_DB: school_ci
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      # Runtime vars expected by Prisma and app bootstrap
+      DATABASE_URL: postgresql://ci_user:ci_pass@localhost:5432/school_ci
+      JWT_SECRET: ci_jwt_secret_placeholder_32chars!!
+      APP_ENCRYPTION_KEY: ci_encryption_key_placeholder_32ch
+      NODE_ENV: test
+      # Dummy values so env validation doesn't fail on startup
+      FRONTEND_URL: http://localhost:5173
+      PORT: "4000"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Prisma — generate client
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Prisma — validate schema
+        working-directory: backend
+        run: npx prisma validate
+
+      - name: TypeScript — type-check (noEmit)
+        working-directory: backend
+        run: npx tsc --noEmit
+
+      - name: Prisma — deploy migrations to CI DB
+        working-directory: backend
+        run: npx prisma migrate deploy
+
+      - name: Integration tests — school isolation
+        working-directory: backend
+        run: npm run test:isolation
+
+      - name: Integration tests — import engine
+        working-directory: backend
+        run: npm run test:imports
+
+      - name: Build — compile TypeScript to dist/
+        working-directory: backend
+        run: npx tsc
+
+  # ────────────────────────────────────────────────────────────────────
+  # JOB 2 — Frontend: type-check + Vite production build
+  # ────────────────────────────────────────────────────────────────────
+  frontend:
+    name: Frontend (TypeScript + Vite build)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript — type-check (noEmit)
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Vite — production build
+        working-directory: frontend
+        env:
+          VITE_API_URL: http://localhost:4000
+        run: npm run build

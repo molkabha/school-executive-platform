@@ -82,16 +82,15 @@ app.use(helmet({
   contentSecurityPolicy: isDev ? false : undefined,
 }));
 
+import { csrfProtection, isAllowedOrigin } from './middleware/csrf';
+
 // ---- CORS ----
-const developmentOrigins = ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:4173'];
-const productionFrontendOrigin = 'https://school-executive-platform.vercel.app';
 type CorsOriginCallback = (err: Error | null, origin?: boolean | string | RegExp | Array<boolean | string | RegExp>) => void;
 const corsOptions = {
   origin: (origin: string | undefined, callback: CorsOriginCallback) => {
     // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return callback(null, true);
-    if (isDev && developmentOrigins.includes(origin)) return callback(null, true);
-    if (!isDev && origin === productionFrontendOrigin) return callback(null, true);
+    if (isAllowedOrigin(origin)) return callback(null, true);
     callback(new Error(`CORS: Origin ${origin} not allowed`));
   },
   credentials: true,
@@ -125,10 +124,10 @@ const aiLimiter = rateLimit({
 
 app.use(globalLimiter);
 
-// ---- Body Parsers ----
+// ---- Body Parsers & Security Middlewares ----
 app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use(csrfProtection);
 
 // ---- Request ID (for correlating error logs without exposing sensitive data) ----
 app.use((req, res, next) => {

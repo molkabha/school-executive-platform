@@ -49,7 +49,7 @@ const previewSchema = z.object({
 
 const importSchema = previewSchema;
 const excelUploadImportSchema = z.object({
-  uploadId: z.string().min(1),
+  uploadId: z.string().uuid('Invalid upload ID format'),
   datasetType: datasetTypeSchema,
   mapping: mappingSchema,
   sourceName: z.string().min(1),

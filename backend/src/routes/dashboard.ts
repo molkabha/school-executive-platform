@@ -107,7 +107,11 @@ router.use(requireSupervisorAccess);
  */
 router.get('/', async (req: AuthRequest, res) => {
   try {
-    const { schoolId } = req.query as { schoolId?: string };
+    const { schoolId: querySchoolId } = req.query as { schoolId?: string };
+
+    // Enforce school scope: a school-scoped supervisor can only see their own school,
+    // regardless of what ?schoolId= they supply in the query string.
+    const schoolId = req.user!.schoolId || querySchoolId;
 
     // Active-school filtering: matches reportSummary.ts and agent.ts so the
     // dashboard, reports, and AI assistant never disagree on which/how many

@@ -39,6 +39,11 @@ router.get('/', async (req: AuthRequest, res) => {
     if (scope) where.scope = scope;
     if (period) where.period = period;
 
+    // Enforce school scope: a school-scoped user can only list their school's reports.
+    if (req.user!.schoolId) {
+      where.schoolId = req.user!.schoolId;
+    }
+
     const [reports, total] = await Promise.all([
       prisma.report.findMany({
         where,
@@ -85,6 +90,11 @@ router.get('/:id', async (req: AuthRequest, res) => {
 
     if (!report) return res.status(404).json({ message: 'Report not found' });
 
+    // Enforce school scope.
+    if (req.user!.schoolId && report.schoolId && req.user!.schoolId !== report.schoolId) {
+      return res.status(403).json({ message: 'Forbidden: this report belongs to a different school.' });
+    }
+
     res.json({
       data: {
         ...report,
@@ -104,7 +114,9 @@ router.get('/:id', async (req: AuthRequest, res) => {
  */
 router.post('/', validateBody(createReportSchema), async (req: AuthRequest, res) => {
   try {
-    const { title, scope, period, modules, schoolId, aiOutput } = req.body;
+    const { title, scope, period, modules, schoolId: bodySchoolId, aiOutput } = req.body;
+    // School-scoped users can only create reports for their own school.
+    const schoolId = req.user!.schoolId || bodySchoolId || null;
 
     const report = await prisma.report.create({
       data: {
@@ -132,7 +144,9 @@ router.post('/', validateBody(createReportSchema), async (req: AuthRequest, res)
  */
 router.post('/generate', validateBody(generateReportSchema), async (req: AuthRequest, res) => {
   try {
-    const { title, scope, period, modules, schoolId } = req.body;
+    const { title, scope, period, modules, schoolId: bodySchoolId } = req.body;
+    // School-scoped users can only generate reports for their own school.
+    const schoolId = req.user!.schoolId || bodySchoolId || null;
 
     let schoolName: string | undefined;
     if (schoolId) {
