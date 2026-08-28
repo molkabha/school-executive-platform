@@ -65,9 +65,9 @@ jobs:
         working-directory: backend
         run: npx tsc --noEmit
 
-      - name: Prisma — deploy migrations to CI DB
+      - name: Prisma — push schema to CI DB
         working-directory: backend
-        run: npx prisma migrate deploy
+        run: npx prisma db push --accept-data-loss
 
       - name: Integration tests — school isolation
         working-directory: backend
